@@ -1,17 +1,17 @@
 package com.example.myapplication;
 
+import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.icu.text.SimpleDateFormat;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
-import android.util.Log;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.Toast;
-import android.net.Uri;
-import android.Manifest;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -25,6 +25,7 @@ import com.example.myapplication.databinding.ActivityMainBinding;
 
 import java.io.File;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
@@ -34,20 +35,22 @@ public class MainActivity extends AppCompatActivity {
     private Button takePhoto;
     private ImageView photoView;
     private Uri photoUri;
+    private File photoFile;
 
-    // 声明 ActivityResultLauncher
+    // ActivityResultLauncher 用于启动相机
     private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
                 if (result.getResultCode() == RESULT_OK) {
-                    // 使用 URI 加载原图到 ImageView
-                    if (photoUri != null) {
-                        photoView.setImageURI(photoUri);
+                    // 从文件路径加载图片并显示
+                    if (photoFile != null && photoFile.exists()) {
+                        Bitmap bitmap = BitmapFactory.decodeFile(photoFile.getAbsolutePath());
+                        photoView.setImageBitmap(bitmap);
                     } else {
-                        Toast.makeText(this, "图片路径无效", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, "无法加载图片", Toast.LENGTH_SHORT).show();
                     }
                 } else {
-                    Toast.makeText(this, "取消拍照", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "拍照取消", Toast.LENGTH_SHORT).show();
                 }
             }
     );
@@ -56,61 +59,60 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // 使用 View Binding
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
         takePhoto = binding.btnTakePhoto;
         photoView = binding.imageView;
 
-        // 请求摄像头权限
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
+        // 检查并请求摄像头权限
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 100);
         }
 
         takePhoto.setOnClickListener(view -> {
-            File photoFile = createImageFile();
-            if (photoFile != null) {
-                photoUri = FileProvider.getUriForFile(
-                        this,
-                        "com.example.myapplication.fileprovider", // 应用的 authorities，需与 Manifest 中一致
-                        photoFile
-                );
-                Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-                cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri); // 指定保存路径
-                cameraLauncher.launch(cameraIntent);
-            } else {
-                Toast.makeText(this, "无法创建图片文件", Toast.LENGTH_SHORT).show();
+            try {
+                // 创建图片文件
+                photoFile = createImageFile();
+                if (photoFile != null) {
+                    photoUri = FileProvider.getUriForFile(
+                            this,
+                            "com.example.myapplication.fileprovider", // 替换为你的应用包名
+                            photoFile
+                    );
+                    Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                    cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri); // 设置保存路径
+                    cameraLauncher.launch(cameraIntent);
+                }
+            } catch (IOException e) {
+                Toast.makeText(this, "创建图片文件失败", Toast.LENGTH_SHORT).show();
             }
         });
     }
 
-    private File createImageFile() {
-        try {
-            String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-            String imageFileName = "JPEG_" + timeStamp + "_";
-            File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES); // 应用的图片目录
-            if (storageDir != null && !storageDir.exists()) {
-                if (!storageDir.mkdirs()) {
-                    Log.e("MainActivity", "无法创建图片存储目录");
-                    return null;
-                }
-            }
-            return File.createTempFile(
-                    imageFileName,  /* 文件名前缀 */
-                    ".jpg",         /* 文件后缀 */
-                    storageDir      /* 保存目录 */
-            );
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
+    private File createImageFile() throws IOException {
+        // 使用时间戳创建文件名
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+
+        // 获取应用的图片存储目录
+        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        if (storageDir != null && !storageDir.exists()) {
+            storageDir.mkdirs();
         }
+
+        // 创建临时文件
+        return File.createTempFile(
+                imageFileName, /* 文件名前缀 */
+                ".jpg",        /* 文件后缀 */
+                storageDir     /* 目录 */
+        );
     }
 
-    // 处理权限请求结果
+    // 权限请求回调
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 100) {
             if (!(grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
