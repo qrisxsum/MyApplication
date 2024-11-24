@@ -132,7 +132,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void uploadImage(File imageFile) {
-        String uploadUrl = "http://192.168.31.236:5000/upload"; // 替换为你的服务器接口地址
+        String uploadUrl = "http://192.168.31.140:8001/image/upload"; // 替换为你的服务器接口地址
 
         OkHttpClient client = new OkHttpClient();
 
@@ -141,7 +141,7 @@ public class MainActivity extends AppCompatActivity {
 
         MultipartBody requestBody = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("file", imageFile.getName(), fileBody)
+                .addFormDataPart("image", imageFile.getName(), fileBody)
                 .build();
 
         Request request = new Request.Builder()
@@ -155,19 +155,20 @@ public class MainActivity extends AppCompatActivity {
                 String responseData = response.body().string();
                 Log.d("Upload", "Response: " + responseData);
 
-                // 假设服务器返回 JSON 格式：{ "status": "success", "imageUrl": "http://.../processed.jpg" }
+                // 服务器返回格式：{"errno":0,"data":{"url":"...","alt":"","href":"..."}}
                 JSONObject jsonResponse = new JSONObject(responseData);
-                if (jsonResponse.getString("status").equals("success")) {
-                    String processedImageUrl = jsonResponse.getString("imageUrl");
+                if (jsonResponse.getInt("errno") == 0) {
+                    JSONObject data = jsonResponse.getJSONObject("data");
+                    String imageUrl = data.getString("url");
 
                     // 下载并显示处理后的图片
                     runOnUiThread(() -> {
-                        Toast.makeText(this, "图片上传成功，加载处理结果", Toast.LENGTH_SHORT).show();
-                        loadProcessedImage(processedImageUrl);
+                        Toast.makeText(this, "图片上传成功，加载处理结果" + imageUrl, Toast.LENGTH_SHORT).show();
+                        loadProcessedImage(imageUrl);
                     });
                 } else {
                     runOnUiThread(() -> {
-                        Toast.makeText(this, "图片处理失败", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, "图片上传失败", Toast.LENGTH_SHORT).show();
                     });
                 }
             } else {
@@ -183,6 +184,7 @@ public class MainActivity extends AppCompatActivity {
             });
         }
     }
+
 
     private void loadProcessedImage(String imageUrl) {
         new Thread(() -> {
