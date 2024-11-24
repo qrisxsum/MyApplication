@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.Toast;
@@ -29,20 +30,26 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
 public class MainActivity extends AppCompatActivity {
 
     private ActivityMainBinding binding;
     private Button takePhoto;
+    private Button uploadButton; // 新增上传按钮
     private ImageView photoView;
     private Uri photoUri;
     private File photoFile;
 
-    // ActivityResultLauncher 用于启动相机
     private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
                 if (result.getResultCode() == RESULT_OK) {
-                    // 从文件路径加载图片并显示
                     if (photoFile != null && photoFile.exists()) {
                         Bitmap bitmap = BitmapFactory.decodeFile(photoFile.getAbsolutePath());
                         photoView.setImageBitmap(bitmap);
@@ -59,60 +66,109 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 使用 View Binding
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
         takePhoto = binding.btnTakePhoto;
+        uploadButton = binding.btnUpload; // 绑定新增的上传按钮
         photoView = binding.imageView;
 
-        // 检查并请求摄像头权限
+        // 检查权限
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 100);
         }
 
+        // 拍照按钮点击事件
         takePhoto.setOnClickListener(view -> {
             try {
-                // 创建图片文件
                 photoFile = createImageFile();
                 if (photoFile != null) {
                     photoUri = FileProvider.getUriForFile(
                             this,
-                            "com.example.myapplication.fileprovider", // 替换为你的应用包名
+                            "com.example.myapplication.fileprovider",
                             photoFile
                     );
                     Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-                    cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri); // 设置保存路径
+                    cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
                     cameraLauncher.launch(cameraIntent);
                 }
             } catch (IOException e) {
                 Toast.makeText(this, "创建图片文件失败", Toast.LENGTH_SHORT).show();
             }
         });
+
+        // 上传按钮点击事件
+        uploadButton.setOnClickListener(view -> {
+            if (photoFile != null && photoFile.exists()) {
+                new Thread(() -> {
+                    uploadImage(photoFile);
+                }).start();
+            } else {
+                Toast.makeText(this, "请先拍照后再上传", Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private File createImageFile() throws IOException {
-        // 使用时间戳创建文件名
         String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
         String imageFileName = "JPEG_" + timeStamp + "_";
 
-        // 获取应用的图片存储目录
         File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
         if (storageDir != null && !storageDir.exists()) {
             storageDir.mkdirs();
         }
 
-        // 创建临时文件
         return File.createTempFile(
-                imageFileName, /* 文件名前缀 */
-                ".jpg",        /* 文件后缀 */
-                storageDir     /* 目录 */
+                imageFileName,
+                ".jpg",
+                storageDir
         );
     }
 
-    // 权限请求回调
+    private void uploadImage(File imageFile) {
+        String uploadUrl = "http://192.168.31.231:5000/upload"; // 替换为你的服务器接口地址
+
+        OkHttpClient client = new OkHttpClient();
+
+        MediaType mediaType = MediaType.parse("image/jpeg");
+
+        RequestBody fileBody = RequestBody.create(imageFile, mediaType);
+
+        MultipartBody requestBody = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("file", imageFile.getName(), fileBody)
+                .build();
+
+        Request request = new Request.Builder()
+                .url(uploadUrl)
+                .post(requestBody)
+                .build();
+
+        try {
+            Response response = client.newCall(request).execute();
+            if (response.isSuccessful()) {
+                String responseData = response.body().string();
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "图片上传成功", Toast.LENGTH_SHORT).show();
+                });
+                Log.d("Upload", "Response: " + responseData);
+            } else {
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "图片上传失败，错误码：" + response.code(), Toast.LENGTH_SHORT).show();
+                });
+                Log.e("Upload", "Failed to upload image. Response code: " + response.code());
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            runOnUiThread(() -> {
+                Toast.makeText(this, "上传过程中发生错误", Toast.LENGTH_SHORT).show();
+            });
+        }
+    }
+
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 100) {
             if (!(grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
@@ -122,3 +178,5 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 }
+
+
