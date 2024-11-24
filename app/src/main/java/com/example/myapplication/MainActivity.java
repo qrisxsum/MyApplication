@@ -188,16 +188,23 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadProcessedImage(String imageUrl) {
         new Thread(() -> {
+            OkHttpClient client = new OkHttpClient();
+            Request request = new Request.Builder().url("http://192.168.31.140:8001" + imageUrl).build();
+
             try {
-                URL url = new URL(imageUrl);
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                connection.setDoInput(true);
-                connection.connect();
+                Response response = client.newCall(request).execute();
+                if (response.isSuccessful()) {
+                    // 从响应体中获取输入流并解码为 Bitmap
+                    InputStream inputStream = response.body().byteStream();
+                    Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
 
-                InputStream inputStream = connection.getInputStream();
-                Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
-
-                runOnUiThread(() -> photoView.setImageBitmap(bitmap));
+                    // 切换到主线程更新 UI
+                    runOnUiThread(() -> photoView.setImageBitmap(bitmap));
+                } else {
+                    runOnUiThread(() -> {
+                        Toast.makeText(this, "加载处理后的图片失败", Toast.LENGTH_SHORT).show();
+                    });
+                }
             } catch (IOException e) {
                 e.printStackTrace();
                 runOnUiThread(() -> {
@@ -206,6 +213,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }).start();
     }
+
 
 
 
