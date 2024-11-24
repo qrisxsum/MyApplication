@@ -24,8 +24,14 @@ import androidx.core.content.FileProvider;
 
 import com.example.myapplication.databinding.ActivityMainBinding;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -126,12 +132,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void uploadImage(File imageFile) {
-        String uploadUrl = "http://192.168.31.231:5000/upload"; // 替换为你的服务器接口地址
+        String uploadUrl = "http://192.168.31.236:5000/upload"; // 替换为你的服务器接口地址
 
         OkHttpClient client = new OkHttpClient();
 
         MediaType mediaType = MediaType.parse("image/jpeg");
-
         RequestBody fileBody = RequestBody.create(imageFile, mediaType);
 
         MultipartBody requestBody = new MultipartBody.Builder()
@@ -148,23 +153,59 @@ public class MainActivity extends AppCompatActivity {
             Response response = client.newCall(request).execute();
             if (response.isSuccessful()) {
                 String responseData = response.body().string();
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "图片上传成功", Toast.LENGTH_SHORT).show();
-                });
                 Log.d("Upload", "Response: " + responseData);
+
+                // 假设服务器返回 JSON 格式：{ "status": "success", "imageUrl": "http://.../processed.jpg" }
+                JSONObject jsonResponse = new JSONObject(responseData);
+                if (jsonResponse.getString("status").equals("success")) {
+                    String processedImageUrl = jsonResponse.getString("imageUrl");
+
+                    // 下载并显示处理后的图片
+                    runOnUiThread(() -> {
+                        Toast.makeText(this, "图片上传成功，加载处理结果", Toast.LENGTH_SHORT).show();
+                        loadProcessedImage(processedImageUrl);
+                    });
+                } else {
+                    runOnUiThread(() -> {
+                        Toast.makeText(this, "图片处理失败", Toast.LENGTH_SHORT).show();
+                    });
+                }
             } else {
                 runOnUiThread(() -> {
                     Toast.makeText(this, "图片上传失败，错误码：" + response.code(), Toast.LENGTH_SHORT).show();
                 });
                 Log.e("Upload", "Failed to upload image. Response code: " + response.code());
             }
-        } catch (IOException e) {
+        } catch (IOException | JSONException e) {
             e.printStackTrace();
             runOnUiThread(() -> {
                 Toast.makeText(this, "上传过程中发生错误", Toast.LENGTH_SHORT).show();
             });
         }
     }
+
+    private void loadProcessedImage(String imageUrl) {
+        new Thread(() -> {
+            try {
+                URL url = new URL(imageUrl);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setDoInput(true);
+                connection.connect();
+
+                InputStream inputStream = connection.getInputStream();
+                Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
+
+                runOnUiThread(() -> photoView.setImageBitmap(bitmap));
+            } catch (IOException e) {
+                e.printStackTrace();
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "加载处理后的图片失败", Toast.LENGTH_SHORT).show();
+                });
+            }
+        }).start();
+    }
+
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
