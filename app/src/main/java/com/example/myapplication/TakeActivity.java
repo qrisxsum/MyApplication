@@ -42,7 +42,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
-public class MainActivity extends AppCompatActivity {
+public class TakeActivity extends AppCompatActivity {
 
     private static final String SERVER_BASE_URL = "http://192.168.31.140:8001"; // 全局服务器地址
     private static final String UPLOAD_ENDPOINT = SERVER_BASE_URL + "/image/upload"; // 上传接口地址
@@ -84,8 +84,11 @@ public class MainActivity extends AppCompatActivity {
         photoView = binding.imageView;
         tvUsername = binding.tvUsername;
 
+        Intent intent = getIntent();
+        String username = intent.getStringExtra("username");
+
         if (tvUsername != null ) {
-            tvUsername.setText("Welcome, " + tvUsername);
+            tvUsername.setText("Welcome, " + username);
         } else {
             tvUsername.setText("Welcome, User");
         }
