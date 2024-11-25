@@ -12,6 +12,7 @@ import android.provider.MediaStore;
 import android.util.Log;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -30,8 +31,6 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -45,9 +44,14 @@ import okhttp3.Response;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final String SERVER_BASE_URL = "http://192.168.31.140:8001"; // 全局服务器地址
+    private static final String UPLOAD_ENDPOINT = SERVER_BASE_URL + "/image/upload"; // 上传接口地址
+    private static final int REQUEST_PERMISSIONS_CODE = 100;
+
     private ActivityMainBinding binding;
     private Button takePhoto;
     private Button uploadButton; // 新增上传按钮
+    private TextView tvUsername;
     private ImageView photoView;
     private Uri photoUri;
     private File photoFile;
@@ -60,10 +64,10 @@ public class MainActivity extends AppCompatActivity {
                         Bitmap bitmap = BitmapFactory.decodeFile(photoFile.getAbsolutePath());
                         photoView.setImageBitmap(bitmap);
                     } else {
-                        Toast.makeText(this, "无法加载图片", Toast.LENGTH_SHORT).show();
+                        showToast("无法加载图片");
                     }
                 } else {
-                    Toast.makeText(this, "拍照取消", Toast.LENGTH_SHORT).show();
+                    showToast("拍照取消");
                 }
             }
     );
@@ -78,11 +82,15 @@ public class MainActivity extends AppCompatActivity {
         takePhoto = binding.btnTakePhoto;
         uploadButton = binding.btnUpload; // 绑定新增的上传按钮
         photoView = binding.imageView;
+        tvUsername = binding.tvUsername;
 
-        // 检查权限
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 100);
+        if (tvUsername != null ) {
+            tvUsername.setText("Welcome, " + tvUsername);
+        } else {
+            tvUsername.setText("Welcome, User");
         }
+
+        checkPermissions();
 
         // 拍照按钮点击事件
         takePhoto.setOnClickListener(view -> {
@@ -99,20 +107,37 @@ public class MainActivity extends AppCompatActivity {
                     cameraLauncher.launch(cameraIntent);
                 }
             } catch (IOException e) {
-                Toast.makeText(this, "创建图片文件失败", Toast.LENGTH_SHORT).show();
+                showToast("创建图片文件失败");
             }
         });
 
         // 上传按钮点击事件
         uploadButton.setOnClickListener(view -> {
             if (photoFile != null && photoFile.exists()) {
-                new Thread(() -> {
-                    uploadImage(photoFile);
-                }).start();
+                new Thread(() -> uploadImage(photoFile)).start();
             } else {
-                Toast.makeText(this, "请先拍照后再上传", Toast.LENGTH_SHORT).show();
+                showToast("请先拍照后再上传");
             }
         });
+    }
+
+    private void checkPermissions() {
+        String[] requiredPermissions = {
+                Manifest.permission.CAMERA,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+        };
+        boolean permissionsGranted = true;
+
+        for (String permission : requiredPermissions) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                permissionsGranted = false;
+                break;
+            }
+        }
+
+        if (!permissionsGranted) {
+            ActivityCompat.requestPermissions(this, requiredPermissions, REQUEST_PERMISSIONS_CODE);
+        }
     }
 
     private File createImageFile() throws IOException {
@@ -132,10 +157,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void uploadImage(File imageFile) {
-        String uploadUrl = "http://192.168.31.140:8001/image/upload"; // 替换为你的服务器接口地址
+        showToast("正在上传图片，请稍候...");
 
         OkHttpClient client = new OkHttpClient();
-
         MediaType mediaType = MediaType.parse("image/jpeg");
         RequestBody fileBody = RequestBody.create(imageFile, mediaType);
 
@@ -145,7 +169,7 @@ public class MainActivity extends AppCompatActivity {
                 .build();
 
         Request request = new Request.Builder()
-                .url(uploadUrl)
+                .url(UPLOAD_ENDPOINT)
                 .post(requestBody)
                 .build();
 
@@ -155,79 +179,67 @@ public class MainActivity extends AppCompatActivity {
                 String responseData = response.body().string();
                 Log.d("Upload", "Response: " + responseData);
 
-                // 服务器返回格式：{"errno":0,"data":{"url":"...","alt":"","href":"..."}}
                 JSONObject jsonResponse = new JSONObject(responseData);
                 if (jsonResponse.getInt("errno") == 0) {
                     JSONObject data = jsonResponse.getJSONObject("data");
                     String imageUrl = data.getString("url");
 
-                    // 下载并显示处理后的图片
                     runOnUiThread(() -> {
-                        Toast.makeText(this, "图片上传成功，加载处理结果" + imageUrl, Toast.LENGTH_SHORT).show();
+                        showToast("图片上传成功，加载处理结果");
                         loadProcessedImage(imageUrl);
                     });
                 } else {
-                    runOnUiThread(() -> {
-                        Toast.makeText(this, "图片上传失败", Toast.LENGTH_SHORT).show();
-                    });
+                    runOnUiThread(() -> showToast("图片上传失败"));
                 }
             } else {
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "图片上传失败，错误码：" + response.code(), Toast.LENGTH_SHORT).show();
-                });
+                runOnUiThread(() -> showToast("图片上传失败，错误码：" + response.code()));
                 Log.e("Upload", "Failed to upload image. Response code: " + response.code());
             }
         } catch (IOException | JSONException e) {
             e.printStackTrace();
-            runOnUiThread(() -> {
-                Toast.makeText(this, "上传过程中发生错误", Toast.LENGTH_SHORT).show();
-            });
+            runOnUiThread(() -> showToast("上传过程中发生错误"));
         }
     }
 
-
     private void loadProcessedImage(String imageUrl) {
         new Thread(() -> {
+            String fullUrl = Uri.parse(SERVER_BASE_URL).buildUpon()
+                    .appendEncodedPath(imageUrl)
+                    .build().toString();
+
             OkHttpClient client = new OkHttpClient();
-            Request request = new Request.Builder().url("http://192.168.31.140:8001" + imageUrl).build();
+            Request request = new Request.Builder().url(fullUrl).build();
 
             try {
                 Response response = client.newCall(request).execute();
                 if (response.isSuccessful()) {
-                    // 从响应体中获取输入流并解码为 Bitmap
                     InputStream inputStream = response.body().byteStream();
                     Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
 
-                    // 切换到主线程更新 UI
                     runOnUiThread(() -> photoView.setImageBitmap(bitmap));
                 } else {
-                    runOnUiThread(() -> {
-                        Toast.makeText(this, "加载处理后的图片失败", Toast.LENGTH_SHORT).show();
-                    });
+                    runOnUiThread(() -> showToast("加载处理后的图片失败"));
                 }
             } catch (IOException e) {
                 e.printStackTrace();
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "加载处理后的图片失败", Toast.LENGTH_SHORT).show();
-                });
+                runOnUiThread(() -> showToast("加载处理后的图片失败"));
             }
         }).start();
     }
 
-
-
+    private void showToast(String message) {
+        runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show());
+    }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 100) {
+        if (requestCode == REQUEST_PERMISSIONS_CODE) {
             if (!(grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
-                Toast.makeText(this, "需要摄像头权限才能拍照", Toast.LENGTH_SHORT).show();
+                showToast("需要摄像头权限才能拍照");
                 takePhoto.setEnabled(false);
             }
         }
     }
 }
-
-
